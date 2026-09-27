@@ -17,13 +17,12 @@ class Requirement(BaseModel):
 class AnalysisResult(BaseModel):
     match_score:int; score_breakdown:ScoreBreakdown; detected_language:str; summary:str; requirements:List[Requirement]; matched_skills:List[str]; missing_skills:List[str]; keywords:List[str]; analysis_seconds:float
 class WritingResult(BaseModel):
-    cv_suggestions:List[str]=Field(default_factory=list); cover_letter:str=''; interview_questions:List[str]=Field(default_factory=list)
+    cv_suggestions:List[str]=Field(default_factory=list); cover_letter:str=''; interview_questions:List[str]=Field(default_factory=list); generation_seconds:float=0
 
-app=FastAPI(title='AI Job Application Assistant API',version='1.5.1',description='Instant deterministic evidence-based CV/job matching with atomic requirements.')
+app=FastAPI(title='AI Job Application Assistant API',version='1.5.2',description='Instant deterministic evidence-based CV/job matching with resilient local AI writing.')
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:3000'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 
-SKILLS={
-'python':['python'],'fastapi':['fastapi'],'javascript':['javascript'],'typescript':['typescript'],'react':['react','next.js','nextjs'],'node':['node.js','nodejs'],'csharp':['c#','.net','dotnet'],'java':['java'],'sql':['sql','sql server','postgresql','mysql'],'git':['git','github'],'docker':['docker'],'kubernetes':['kubernetes','k8s'],'aws':['aws','amazon web services'],'azure':['azure'],'gcp':['gcp','google cloud'],'cloud':['cloud computing','cloud technologies','cloud-technologien'],'llm':['llm','large language model','language models','llama','ollama'],'rag':['rag','retrieval augmented generation','retrieval-augmented generation'],'agents':['ai agent','ai-agent','ai agents','ki-agent','ki agent','agentic','agent skills','mcp'],'ml':['machine learning','ki-/ml','ml-verfahren'],'genai':['generative ai','genai'],'testing':['unit test','unit tests','testing','pytest','jest','tests'],'code_review':['code review','code reviews'],'cicd':['ci/cd','continuous integration','continuous deployment'],'agile':['agile','agilen','scrum','kanban'],'okr':['okr'],'office':['microsoft-office','microsoft office','ms office','excel','powerpoint','word'],'api':['rest api','restful','api development','schnittstellen'],'fullstack':['full-stack','full stack','frontend and backend','frontend & backend'],'security':['it-sicherheit','it security','cybersecurity'],'requirements':['requirements engineering','requirement analysis','anforderungsanalyse','fachlichen anforderungen'],'masters':['m.sc','msc','master of science','master’s','master\'s'],'bachelors':['b.sc','bsc','bachelor'],'computer_science':['computer science','informatik'],'german':['deutschkenntnisse','german'],'communication':['kommunikationsfähigkeit','communication skills'],'teamwork':['teamgeist','teamwork','team player']}
+SKILLS={'python':['python'],'fastapi':['fastapi'],'javascript':['javascript'],'typescript':['typescript'],'react':['react','next.js','nextjs'],'node':['node.js','nodejs'],'csharp':['c#','.net','dotnet'],'java':['java'],'sql':['sql','sql server','postgresql','mysql'],'git':['git','github'],'docker':['docker'],'kubernetes':['kubernetes','k8s'],'aws':['aws','amazon web services'],'azure':['azure'],'gcp':['gcp','google cloud'],'cloud':['cloud computing','cloud technologies','cloud-technologien'],'llm':['llm','large language model','language models','llama','ollama'],'rag':['rag','retrieval augmented generation','retrieval-augmented generation'],'agents':['ai agent','ai-agent','ai agents','ki-agent','ki agent','agentic','agent skills','mcp'],'ml':['machine learning','ki-/ml','ml-verfahren'],'genai':['generative ai','genai'],'testing':['unit test','unit tests','testing','pytest','jest','tests'],'code_review':['code review','code reviews'],'cicd':['ci/cd','continuous integration','continuous deployment'],'agile':['agile','agilen','scrum','kanban'],'okr':['okr'],'office':['microsoft-office','microsoft office','ms office','excel','powerpoint','word'],'api':['rest api','restful','api development','schnittstellen'],'fullstack':['full-stack','full stack','frontend and backend','frontend & backend'],'security':['it-sicherheit','it security','cybersecurity'],'requirements':['requirements engineering','requirement analysis','anforderungsanalyse','fachlichen anforderungen'],'masters':['m.sc','msc','master of science','master’s','master\'s'],'bachelors':['b.sc','bsc','bachelor'],'computer_science':['computer science','informatik'],'german':['deutschkenntnisse','german'],'communication':['kommunikationsfähigkeit','communication skills'],'teamwork':['teamgeist','teamwork','team player']}
 BENEFIT_CUES=['monatsgehalt','gewinnbeteiligung','mobiles arbeiten','flexible arbeitszeiten','urlaubstage','benefits','unternehmenskultur','raum für mitgestaltung','betriebliche altersvorsorge','jobrad','kantine','vergütung','gehalt','arbeitszeiten']
 REQ_CUES=['erfahrung','kenntnisse','studium','abschluss','ausbildung','deutschkenntnisse','kommunikationsfähigkeit','teamgeist','lernbereitschaft','arbeitsweise','entwickeln','entwicklung','konzipieren','implementieren','integrieren','betreiben','softwarequalität','code reviews','tests','anforderungen','architekturentscheidungen','standards','sicherstellen','überführen','prototypen','experience','knowledge','degree','develop','implement','requirements','responsible']
 
@@ -56,7 +55,6 @@ def split_job(job:str)->list[str]:
     return pieces
 def atomize(line:str)->list[str]:
     low=line.lower()
-    # Explicitly split common compound qualification sentences into independently scoreable requirements.
     if 'microsoft-office' in low and ('aws' in low or 'cloud-technologien' in low):
         out=['Sehr gute Kenntnisse in Microsoft-Office-Anwendungen']
         if 'ki-/ml' in low or 'ml-verfahren' in low:out.append('Erfahrung mit KI-/ML-Verfahren')
@@ -69,8 +67,7 @@ def atomize(line:str)->list[str]:
         if 'human-in-the-loop' in low:out.append('Human-in-the-Loop bei KI-generierten Ergebnissen')
         if 'it-sicherheit' in low:out.append('IT-Sicherheit und regulatorische Anforderungen')
         return out
-    if 'studium' in low and 'berufserfahrung' in low and ('alternativ' in low or 'ausbildung' in low):
-        return ['Abgeschlossenes Studium im Bereich Informatik oder vergleichbar']
+    if 'studium' in low and 'berufserfahrung' in low and ('alternativ' in low or 'ausbildung' in low):return ['Abgeschlossenes Studium im Bereich Informatik oder vergleichbar']
     return [line]
 def is_benefit(line:str)->bool:return any(x in line.lower() for x in BENEFIT_CUES)
 def priority(line:str)->str:return 'preferred' if any(x in line.lower() for x in ['von vorteil','wünschenswert','idealerweise','nice to have','preferred','optional']) else 'required'
@@ -87,31 +84,25 @@ def classify(line:str,cv:str)->tuple[str,str]:
         return ('matched',ev) if ratio>=.8 else ('partial',ev) if ratio>=.34 else ('missing','No evidence in CV')
     low=line.lower();cvn=norm(cv)
     if 'berufserfahrung' in low or 'years of experience' in low:
-        # Education/degree keywords must never prove work experience.
-        exp_markers=['software developer','softwareentwickler','developer','entwickler','work experience','professional experience','berufserfahrung']
-        hits=[x for x in exp_markers if x in cvn]
+        hits=[x for x in ['software developer','softwareentwickler','developer','entwickler','work experience','professional experience','berufserfahrung'] if x in cvn]
         return ('partial',', '.join(hits[:3])) if hits else ('missing','No explicit work-experience evidence in CV')
-    words=[w for w in re.findall(r'[a-zäöüß]{5,}',low) if w not in {'einen','einer','einem','sowie','diese','dieser','hohen','ausgeprägte','bereich','erfahrung','kenntnisse'}]
-    hits=[w for w in words if w in cvn]
+    words=[w for w in re.findall(r'[a-zäöüß]{5,}',low) if w not in {'einen','einer','einem','sowie','diese','dieser','hohen','ausgeprägte','bereich','erfahrung','kenntnisse'}];hits=[w for w in words if w in cvn]
     if len(hits)>=3:return 'partial',', '.join(hits[:4])
     return 'missing','No explicit evidence in CV'
 def extract_requirements(job:str,cv:str)->list[Requirement]:
     candidates=[];seen=set()
     for original in split_job(job):
         if is_benefit(original):continue
-        base_priority=priority(original)
+        bp=priority(original)
         for line in atomize(original):
             low=line.lower();skills=skill_set(line)
             if not skills and not any(x in low for x in REQ_CUES):continue
             key=norm(line)
             if key in seen:continue
-            seen.add(key);rank=(3 if skills else 0)+(2 if any(x in low for x in ['entwickeln','konzipieren','implementieren','softwarequalität','prototypen','anforderungen','erfahrung','kenntnisse','studium']) else 0)+(1 if base_priority=='required' else 0)
-            candidates.append((rank,line,base_priority))
-    candidates.sort(key=lambda x:x[0],reverse=True)
-    out=[];edu_seen=False
+            seen.add(key);rank=(3 if skills else 0)+(2 if any(x in low for x in ['entwickeln','konzipieren','implementieren','softwarequalität','prototypen','anforderungen','erfahrung','kenntnisse','studium']) else 0)+(1 if bp=='required' else 0);candidates.append((rank,line,bp))
+    candidates.sort(key=lambda x:x[0],reverse=True);out=[];edu_seen=False
     for _,line,p in candidates:
         cat=category(line)
-        # One degree requirement should not be counted twice because of alternative wording.
         if cat=='education':
             if edu_seen:continue
             edu_seen=True
@@ -130,17 +121,25 @@ def summary(lang:str,m:list[str],miss:list[str],s:int)->str:
     if lang=='German':return f"Der evidenzbasierte Match-Score beträgt {s}/100. Verifizierte Übereinstimmungen: {', '.join(m[:3]) if m else 'keine eindeutigen Volltreffer'}. Nicht belegte Anforderungen: {', '.join(miss[:3]) if miss else 'keine in den analysierten Kernanforderungen'}."
     return f"The evidence-based match score is {s}/100. Verified matches: {', '.join(m[:3]) if m else 'no clear full matches'}. Unverified requirements: {', '.join(miss[:3]) if miss else 'none among the analyzed core requirements'}."
 def parse_json(text:str)->dict:
-    try:v=json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',(text or '').strip(),flags=re.I|re.S));return v if isinstance(v,dict) else {}
-    except Exception:return {}
+    text=re.sub(r'^```(?:json)?\s*|\s*```$','',(text or '').strip(),flags=re.I|re.S).strip()
+    try:v=json.loads(text);return v if isinstance(v,dict) else {}
+    except Exception:pass
+    a=text.find('{');b=text.rfind('}')
+    if a>=0 and b>a:
+        try:v=json.loads(text[a:b+1]);return v if isinstance(v,dict) else {}
+        except Exception:pass
+    return {}
 async def ollama(prompt:str,n:int)->dict:
     base=os.getenv('OLLAMA_BASE_URL','http://localhost:11434').rstrip('/');model=os.getenv('OLLAMA_MODEL','llama3.2')
     try:
-        async with httpx.AsyncClient(timeout=120) as c:
-            r=await c.post(f'{base}/api/generate',json={'model':model,'prompt':prompt,'stream':False,'format':'json','keep_alive':'15m','options':{'temperature':0,'num_predict':n,'num_ctx':3072}});r.raise_for_status();return parse_json(r.json().get('response',''))
-    except Exception:return {}
+        async with httpx.AsyncClient(timeout=150) as c:
+            r=await c.post(f'{base}/api/generate',json={'model':model,'prompt':prompt,'stream':False,'format':'json','keep_alive':'15m','options':{'temperature':0,'num_predict':n,'num_ctx':4096}});r.raise_for_status();return parse_json(r.json().get('response',''))
+    except httpx.ConnectError as exc:raise HTTPException(503,'Cannot connect to Ollama.') from exc
+    except httpx.TimeoutException as exc:raise HTTPException(504,'Local AI generation timed out.') from exc
+    except Exception as exc:raise HTTPException(502,f'Local AI generation failed: {type(exc).__name__}') from exc
 
 @app.get('/health')
-async def health():return {'status':'ok','service':'ai-job-application-assistant','version':'1.5.1','pipeline':'atomic-deterministic-analysis'}
+async def health():return {'status':'ok','service':'ai-job-application-assistant','version':'1.5.2','pipeline':'atomic-analysis-resilient-generation'}
 @app.post('/analyze',response_model=AnalysisResult)
 async def analyze_endpoint(cv:UploadFile=File(...),job_description:str=Form(...)):
     started=time.perf_counter()
@@ -154,7 +153,10 @@ async def analyze_endpoint(cv:UploadFile=File(...),job_description:str=Form(...)
     return AnalysisResult(match_score=total,score_breakdown=bd,detected_language=lang,summary=summary(lang,matched,missing,total),requirements=reqs,matched_skills=matched,missing_skills=missing,keywords=keywords(job_description),analysis_seconds=round(time.perf_counter()-started,2))
 @app.post('/generate',response_model=WritingResult)
 async def generate_endpoint(cv:UploadFile=File(...),job_description:str=Form(...),analysis_json:str=Form(...)):
-    cvt=extract_pdf_text(await cv.read())
+    started=time.perf_counter();cvt=extract_pdf_text(await cv.read())
     try:a=json.loads(analysis_json)
     except json.JSONDecodeError as exc:raise HTTPException(400,'Invalid analysis data.') from exc
-    lang=a.get('detected_language',language_of(job_description));ev='\n'.join(f"- {x.get('requirement')}: {x.get('status')} | {x.get('evidence')}" for x in a.get('requirements',[])[:12]);p=f'''Return ONLY valid JSON with cv_suggestions, cover_letter, interview_questions. Write entirely in {lang}. Exactly 3 truthful CV suggestions, a 90-130 word cover letter, exactly 5 interview questions. Use ONLY verified evidence and CV facts. Never claim missing experience.\nVERIFIED ANALYSIS:\n{ev}\nCV:\n{compact(cvt,4200)}\nJOB:\n{compact(job_description,2400)}''';raw=await ollama(p,500);s=raw.get('cv_suggestions') or [];q=raw.get('interview_questions') or [];return WritingResult(cv_suggestions=s[:3] if isinstance(s,list) else [],cover_letter=str(raw.get('cover_letter') or ''),interview_questions=q[:5] if isinstance(q,list) else [])
+    lang=a.get('detected_language',language_of(job_description));ev='\n'.join(f"- {x.get('requirement')}: {x.get('status')} | {x.get('evidence')}" for x in a.get('requirements',[])[:12]);p=f'''Return ONLY one valid compact JSON object. No markdown. Required keys: cv_suggestions, cover_letter, interview_questions. cv_suggestions MUST be an array of exactly 3 strings. interview_questions MUST be an array of exactly 5 strings. cover_letter MUST be one string of 80-120 words. Write entirely in {lang}. Use only CV facts and VERIFIED ANALYSIS. Never claim experience marked missing.\nVERIFIED ANALYSIS:\n{ev}\nCV:\n{compact(cvt,3600)}\nJOB:\n{compact(job_description,1800)}''';raw=await ollama(p,700)
+    s=raw.get('cv_suggestions');q=raw.get('interview_questions');letter=raw.get('cover_letter')
+    if not isinstance(s,list) or not isinstance(q,list) or not isinstance(letter,str) or not letter.strip():raise HTTPException(502,'The local model returned incomplete application materials. Please try again.')
+    return WritingResult(cv_suggestions=[str(x) for x in s[:3]],cover_letter=letter.strip(),interview_questions=[str(x) for x in q[:5]],generation_seconds=round(time.perf_counter()-started,1))
