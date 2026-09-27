@@ -19,7 +19,7 @@ class AnalysisResult(BaseModel):
 class WritingResult(BaseModel):
     cv_suggestions:List[str]=Field(default_factory=list); cover_letter:str=''; interview_questions:List[str]=Field(default_factory=list); generation_seconds:float=0
 
-app=FastAPI(title='AI Job Application Assistant API',version='1.5.3',description='Evidence-based CV matching with guarded local-AI application writing.')
+app=FastAPI(title='AI Job Application Assistant API',version='1.6.0',description='Fast evidence-based CV matching with guarded local-AI cover-letter writing.')
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:3000'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 
 SKILLS={'python':['python'],'fastapi':['fastapi'],'javascript':['javascript'],'typescript':['typescript'],'react':['react','next.js','nextjs'],'node':['node.js','nodejs'],'csharp':['c#','.net','dotnet'],'java':['java'],'sql':['sql','sql server','postgresql','mysql'],'git':['git','github'],'docker':['docker'],'kubernetes':['kubernetes','k8s'],'aws':['aws','amazon web services'],'azure':['azure'],'gcp':['gcp','google cloud'],'cloud':['cloud computing','cloud technologies','cloud-technologien'],'llm':['llm','large language model','language models','llama','ollama'],'rag':['rag','retrieval augmented generation','retrieval-augmented generation'],'agents':['ai agent','ai-agent','ai agents','ki-agent','ki agent','agentic','agent skills','mcp'],'ml':['machine learning','ki-/ml','ml-verfahren'],'genai':['generative ai','genai'],'testing':['unit test','unit tests','testing','pytest','jest','tests'],'code_review':['code review','code reviews'],'cicd':['ci/cd','continuous integration','continuous deployment'],'agile':['agile','agilen','scrum','kanban'],'okr':['okr'],'office':['microsoft-office','microsoft office','ms office','excel','powerpoint','word'],'api':['rest api','restful','api development','schnittstellen'],'fullstack':['full-stack','full stack','frontend and backend','frontend & backend'],'security':['it-sicherheit','it security','cybersecurity'],'requirements':['requirements engineering','requirement analysis','anforderungsanalyse','fachlichen anforderungen'],'masters':['m.sc','msc','master of science','master’s',"master's"],'bachelors':['b.sc','bsc','bachelor'],'computer_science':['computer science','informatik'],'german':['deutschkenntnisse','german'],'communication':['kommunikationsfähigkeit','communication skills'],'teamwork':['teamgeist','teamwork','team player']}
@@ -132,15 +132,14 @@ def parse_json(text:str)->dict:
 async def ollama(prompt:str,n:int)->dict:
     base=os.getenv('OLLAMA_BASE_URL','http://localhost:11434').rstrip('/');model=os.getenv('OLLAMA_MODEL','llama3.2')
     try:
-        async with httpx.AsyncClient(timeout=150) as c:
-            r=await c.post(f'{base}/api/generate',json={'model':model,'prompt':prompt,'stream':False,'format':'json','keep_alive':'15m','options':{'temperature':0,'num_predict':n,'num_ctx':4096}});r.raise_for_status();return parse_json(r.json().get('response',''))
+        async with httpx.AsyncClient(timeout=90) as c:
+            r=await c.post(f'{base}/api/generate',json={'model':model,'prompt':prompt,'stream':False,'format':'json','keep_alive':'30m','options':{'temperature':0.15,'num_predict':n,'num_ctx':2048}});r.raise_for_status();return parse_json(r.json().get('response',''))
     except httpx.ConnectError as exc:raise HTTPException(503,'Cannot connect to Ollama.') from exc
     except httpx.TimeoutException as exc:raise HTTPException(504,'Local AI generation timed out.') from exc
     except Exception as exc:raise HTTPException(502,f'Local AI generation failed: {type(exc).__name__}') from exc
 
 def guarded_suggestions(lang:str,matched:list[dict],missing:list[dict])->list[str]:
-    good=[x.get('requirement','') for x in matched if x.get('requirement')]
-    gaps=[x.get('requirement','') for x in missing if x.get('requirement')]
+    good=[x.get('requirement','') for x in matched if x.get('requirement')];gaps=[x.get('requirement','') for x in missing if x.get('requirement')]
     if lang=='German':
         out=[]
         if good:out.append(f"Hebe die belegte Stärke „{good[0]}“ im Profil und in den relevanten Projekten deutlicher hervor.")
@@ -154,28 +153,33 @@ def guarded_suggestions(lang:str,matched:list[dict],missing:list[dict])->list[st
     if gaps:out.append(f"There is insufficient CV evidence for “{gaps[0]}”. Add it only if you have genuine, verifiable experience; otherwise do not claim it as a skill.")
     while len(out)<3:out.append('Describe existing project experience with concrete technologies and verifiable outcomes without adding new experience.')
     return out[:3]
-def fallback_questions(lang:str,reqs:list[dict])->list[str]:
-    names=[x.get('requirement','') for x in reqs if x.get('requirement')][:5]
-    if lang=='German':out=[f"Wie würden Sie Ihre Erfahrung bzw. Ihren Kenntnisstand zu „{x}“ beschreiben?" for x in names]
-    else:out=[f"How would you describe your experience or current knowledge regarding “{x}”?" for x in names]
-    generic_de=['Welches Ihrer bisherigen Projekte ist für diese Position am relevantesten und warum?','Wie gehen Sie vor, wenn Ihnen für eine Aufgabe noch praktische Erfahrung fehlt?','Wie stellen Sie die Qualität einer von Ihnen entwickelten Softwarelösung sicher?','Wie arbeiten Sie sich in eine neue Technologie ein?','Warum interessiert Sie diese Position?']
-    generic_en=['Which of your previous projects is most relevant to this position and why?','How do you approach a task when you do not yet have practical experience in one area?','How do you ensure the quality of a software solution you develop?','How do you learn a new technology?','Why are you interested in this position?']
-    for x in (generic_de if lang=='German' else generic_en):
-        if len(out)>=5:break
-        out.append(x)
-    return out[:5]
+def interview_questions(lang:str,matched:list[dict],missing:list[dict])->list[str]:
+    if lang=='German':
+        q=['Welches Ihrer bisherigen Software- oder KI-Projekte ist für diese Position am relevantesten, und welchen konkreten Beitrag haben Sie dabei geleistet?','Wie würden Sie eine Anwendung konzipieren, die einen LLM- oder KI-Agenten sicher in ein bestehendes internes System integriert?','Wie stellen Sie bei einer Full-Stack-Anwendung Qualität, Wartbarkeit und zuverlässige Tests sicher?']
+        if missing:q.append(f"Die Stelle nennt „{missing[0].get('requirement','eine noch nicht belegte Anforderung')}“. Wie würden Sie sich in diesen Bereich einarbeiten?")
+        q.append('Warum möchten Sie Ihre bisherige Softwareentwicklungserfahrung gerade in dieser AI-Solutions-Rolle einsetzen?')
+        return q[:5]
+    q=['Which of your previous software or AI projects is most relevant to this role, and what was your concrete contribution?','How would you design an application that safely integrates an LLM or AI agent with an existing internal system?','How do you ensure quality, maintainability, and reliable testing in a full-stack application?']
+    if missing:q.append(f"The role mentions “{missing[0].get('requirement','an unverified requirement')}”. How would you build competence in this area?")
+    q.append('Why do you want to apply your previous software-development experience specifically in this AI solutions role?')
+    return q[:5]
 def suspicious_claim(text:str,missing:list[dict])->bool:
-    t=norm(text)
-    claim_cues=['ich habe erfahrung','ich verfüge über erfahrung','meine erfahrung mit','i have experience','my experience with','experienced in']
+    t=norm(text);claim_cues=['ich habe erfahrung','ich verfüge über erfahrung','meine erfahrung mit','i have experience','my experience with','experienced in']
     if not any(c in t for c in claim_cues):return False
     for r in missing:
-        skills=skill_set(r.get('requirement',''))
-        for s in skills:
+        for s in skill_set(r.get('requirement','')):
             if any(present(t,a) for a in SKILLS.get(s,[])):return True
     return False
+def bad_language(text:str,lang:str)->bool:
+    if not text.strip():return True
+    words=re.findall(r"[A-Za-zÄÖÜäöüß'-]+",text)
+    if len(words)<55:return True
+    # Catch obvious degeneration/repetition without pretending to be a grammar checker.
+    low=[w.lower() for w in words]
+    return any(low.count(w)>=5 for w in set(low) if len(w)>5)
 
 @app.get('/health')
-async def health():return {'status':'ok','service':'ai-job-application-assistant','version':'1.5.3','pipeline':'atomic-analysis-guarded-generation'}
+async def health():return {'status':'ok','service':'ai-job-application-assistant','version':'1.6.0','pipeline':'fast-analysis-focused-guarded-generation'}
 @app.post('/analyze',response_model=AnalysisResult)
 async def analyze_endpoint(cv:UploadFile=File(...),job_description:str=Form(...)):
     started=time.perf_counter()
@@ -192,12 +196,12 @@ async def generate_endpoint(cv:UploadFile=File(...),job_description:str=Form(...
     started=time.perf_counter();cvt=extract_pdf_text(await cv.read())
     try:a=json.loads(analysis_json)
     except json.JSONDecodeError as exc:raise HTTPException(400,'Invalid analysis data.') from exc
-    lang=a.get('detected_language',language_of(job_description));reqs=a.get('requirements',[]);matched=[x for x in reqs if x.get('status')=='matched'];missing=[x for x in reqs if x.get('status')=='missing'];ev='\n'.join(f"- {x.get('requirement')}: {x.get('status')} | {x.get('evidence')}" for x in reqs[:12])
-    p=f'''Return ONLY one valid compact JSON object with keys cover_letter and interview_questions. No markdown. interview_questions MUST contain exactly 5 strings. cover_letter MUST be 80-120 words, entirely in {lang}. HARD TRUTHFULNESS RULE: facts marked MISSING are gaps, never candidate experience. Do not write "I have experience" or equivalent for any MISSING item. Use only CV facts and MATCHED evidence. PARTIAL items may only be described cautiously.\nVERIFIED ANALYSIS:\n{ev}\nCV:\n{compact(cvt,3600)}\nJOB:\n{compact(job_description,1800)}'''
-    raw=await ollama(p,700);letter=raw.get('cover_letter');q=raw.get('interview_questions')
-    if not isinstance(letter,str) or not letter.strip():raise HTTPException(502,'The local model returned an incomplete cover letter. Please try again.')
+    lang=a.get('detected_language',language_of(job_description));reqs=a.get('requirements',[]);matched=[x for x in reqs if x.get('status')=='matched'];missing=[x for x in reqs if x.get('status')=='missing']
+    verified='; '.join(f"{x.get('requirement')} [{x.get('evidence')}]" for x in matched[:5]);gaps='; '.join(x.get('requirement','') for x in missing[:4])
+    if lang=='German':instruction='Schreibe ein natürliches, professionelles deutsches Anschreiben mit 90-120 Wörtern. Verwende klares Standarddeutsch, keine ungewöhnlichen Wortspiele oder Wiederholungen. Behaupte keine Erfahrung aus der Liste NICHT BELEGT. Gib ausschließlich JSON zurück: {"cover_letter":"..."}.'
+    else:instruction='Write a natural, professional English cover letter of 90-120 words. Use clear professional English, with no odd wordplay or repetition. Never claim experience from the NOT VERIFIED list. Return JSON only: {"cover_letter":"..."}.'
+    p=f'''{instruction}\nVERIFIED: {verified}\nNOT VERIFIED: {gaps}\nCV FACTS:\n{compact(cvt,2300)}\nJOB CONTEXT:\n{compact(job_description,900)}'''
+    raw=await ollama(p,320);letter=raw.get('cover_letter')
+    if not isinstance(letter,str) or bad_language(letter,lang):raise HTTPException(502,'The local model returned a low-quality cover letter. Please generate again.')
     if suspicious_claim(letter,missing):raise HTTPException(502,'Generation guard blocked an unsupported experience claim. Please generate again.')
-    questions=[str(x).strip() for x in q if str(x).strip()] if isinstance(q,list) else []
-    if len(questions)!=5:questions=fallback_questions(lang,reqs)
-    suggestions=guarded_suggestions(lang,matched,missing)
-    return WritingResult(cv_suggestions=suggestions,cover_letter=letter.strip(),interview_questions=questions[:5],generation_seconds=round(time.perf_counter()-started,1))
+    return WritingResult(cv_suggestions=guarded_suggestions(lang,matched,missing),cover_letter=letter.strip(),interview_questions=interview_questions(lang,matched,missing),generation_seconds=round(time.perf_counter()-started,1))
