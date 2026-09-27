@@ -19,7 +19,7 @@ class AnalysisResult(BaseModel):
 class WritingResult(BaseModel):
     cv_suggestions:List[str]=Field(default_factory=list); cover_letter:str=''; interview_questions:List[str]=Field(default_factory=list); generation_seconds:float=0
 
-app=FastAPI(title='AI Job Application Assistant API',version='1.6.0',description='Fast evidence-based CV matching with guarded local-AI cover-letter writing.')
+app=FastAPI(title='AI Job Application Assistant API',version='1.6.1',description='Fast evidence-based CV matching with guarded and polished local-AI cover-letter writing.')
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:3000'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 
 SKILLS={'python':['python'],'fastapi':['fastapi'],'javascript':['javascript'],'typescript':['typescript'],'react':['react','next.js','nextjs'],'node':['node.js','nodejs'],'csharp':['c#','.net','dotnet'],'java':['java'],'sql':['sql','sql server','postgresql','mysql'],'git':['git','github'],'docker':['docker'],'kubernetes':['kubernetes','k8s'],'aws':['aws','amazon web services'],'azure':['azure'],'gcp':['gcp','google cloud'],'cloud':['cloud computing','cloud technologies','cloud-technologien'],'llm':['llm','large language model','language models','llama','ollama'],'rag':['rag','retrieval augmented generation','retrieval-augmented generation'],'agents':['ai agent','ai-agent','ai agents','ki-agent','ki agent','agentic','agent skills','mcp'],'ml':['machine learning','ki-/ml','ml-verfahren'],'genai':['generative ai','genai'],'testing':['unit test','unit tests','testing','pytest','jest','tests'],'code_review':['code review','code reviews'],'cicd':['ci/cd','continuous integration','continuous deployment'],'agile':['agile','agilen','scrum','kanban'],'okr':['okr'],'office':['microsoft-office','microsoft office','ms office','excel','powerpoint','word'],'api':['rest api','restful','api development','schnittstellen'],'fullstack':['full-stack','full stack','frontend and backend','frontend & backend'],'security':['it-sicherheit','it security','cybersecurity'],'requirements':['requirements engineering','requirement analysis','anforderungsanalyse','fachlichen anforderungen'],'masters':['m.sc','msc','master of science','master’s',"master's"],'bachelors':['b.sc','bsc','bachelor'],'computer_science':['computer science','informatik'],'german':['deutschkenntnisse','german'],'communication':['kommunikationsfähigkeit','communication skills'],'teamwork':['teamgeist','teamwork','team player']}
@@ -133,7 +133,7 @@ async def ollama(prompt:str,n:int)->dict:
     base=os.getenv('OLLAMA_BASE_URL','http://localhost:11434').rstrip('/');model=os.getenv('OLLAMA_MODEL','llama3.2')
     try:
         async with httpx.AsyncClient(timeout=90) as c:
-            r=await c.post(f'{base}/api/generate',json={'model':model,'prompt':prompt,'stream':False,'format':'json','keep_alive':'30m','options':{'temperature':0.15,'num_predict':n,'num_ctx':2048}});r.raise_for_status();return parse_json(r.json().get('response',''))
+            r=await c.post(f'{base}/api/generate',json={'model':model,'prompt':prompt,'stream':False,'format':'json','keep_alive':'30m','options':{'temperature':0.05,'num_predict':n,'num_ctx':2048}});r.raise_for_status();return parse_json(r.json().get('response',''))
     except httpx.ConnectError as exc:raise HTTPException(503,'Cannot connect to Ollama.') from exc
     except httpx.TimeoutException as exc:raise HTTPException(504,'Local AI generation timed out.') from exc
     except Exception as exc:raise HTTPException(502,f'Local AI generation failed: {type(exc).__name__}') from exc
@@ -170,16 +170,19 @@ def suspicious_claim(text:str,missing:list[dict])->bool:
         for s in skill_set(r.get('requirement','')):
             if any(present(t,a) for a in SKILLS.get(s,[])):return True
     return False
+def sentences(text:str)->list[str]:return [norm(x) for x in re.split(r'(?<=[.!?])\s+',text) if len(norm(x))>20]
 def bad_language(text:str,lang:str)->bool:
     if not text.strip():return True
-    words=re.findall(r"[A-Za-zÄÖÜäöüß'-]+",text)
-    if len(words)<55:return True
-    # Catch obvious degeneration/repetition without pretending to be a grammar checker.
-    low=[w.lower() for w in words]
-    return any(low.count(w)>=5 for w in set(low) if len(w)>5)
+    words=re.findall(r"[A-Za-zÄÖÜäöüß'-]+",text);low=[w.lower() for w in words]
+    if len(words)<65:return True
+    if any(low.count(w)>=5 for w in set(low) if len(w)>5):return True
+    ss=sentences(text)
+    if len(ss)!=len(set(ss)):return True
+    if lang=='German' and any(x in norm(text) for x in ['händen-entwicklung','öffnet mir die öffnung','softwarelölungen']):return True
+    return False
 
 @app.get('/health')
-async def health():return {'status':'ok','service':'ai-job-application-assistant','version':'1.6.0','pipeline':'fast-analysis-focused-guarded-generation'}
+async def health():return {'status':'ok','service':'ai-job-application-assistant','version':'1.6.1','pipeline':'fast-analysis-polished-guarded-generation'}
 @app.post('/analyze',response_model=AnalysisResult)
 async def analyze_endpoint(cv:UploadFile=File(...),job_description:str=Form(...)):
     started=time.perf_counter()
@@ -198,10 +201,10 @@ async def generate_endpoint(cv:UploadFile=File(...),job_description:str=Form(...
     except json.JSONDecodeError as exc:raise HTTPException(400,'Invalid analysis data.') from exc
     lang=a.get('detected_language',language_of(job_description));reqs=a.get('requirements',[]);matched=[x for x in reqs if x.get('status')=='matched'];missing=[x for x in reqs if x.get('status')=='missing']
     verified='; '.join(f"{x.get('requirement')} [{x.get('evidence')}]" for x in matched[:5]);gaps='; '.join(x.get('requirement','') for x in missing[:4])
-    if lang=='German':instruction='Schreibe ein natürliches, professionelles deutsches Anschreiben mit 90-120 Wörtern. Verwende klares Standarddeutsch, keine ungewöhnlichen Wortspiele oder Wiederholungen. Behaupte keine Erfahrung aus der Liste NICHT BELEGT. Gib ausschließlich JSON zurück: {"cover_letter":"..."}.'
-    else:instruction='Write a natural, professional English cover letter of 90-120 words. Use clear professional English, with no odd wordplay or repetition. Never claim experience from the NOT VERIFIED list. Return JSON only: {"cover_letter":"..."}.'
-    p=f'''{instruction}\nVERIFIED: {verified}\nNOT VERIFIED: {gaps}\nCV FACTS:\n{compact(cvt,2300)}\nJOB CONTEXT:\n{compact(job_description,900)}'''
-    raw=await ollama(p,320);letter=raw.get('cover_letter')
-    if not isinstance(letter,str) or bad_language(letter,lang):raise HTTPException(502,'The local model returned a low-quality cover letter. Please generate again.')
+    if lang=='German':instruction='Schreibe ein professionelles deutsches Kurzanschreiben mit 100-125 Wörtern. Stil: natürlich, präzise, modernes Standarddeutsch. Genau drei kurze Absätze plus Grußformel. Vermeide Wiederholungen, wörtliche Übersetzungen aus dem Englischen, erfundene Wörter und Floskeln. Wiederhole Motivation oder Firmennamen nicht. Behaupte keine Erfahrung aus NICHT BELEGT. Verwende nur Fakten aus CV FACTS und VERIFIED. Gib ausschließlich JSON zurück: {"cover_letter":"..."}.'
+    else:instruction='Write a professional English short cover letter of 100-125 words. Use exactly three short paragraphs plus a closing. Keep it natural, precise, and modern. Avoid repetition, awkward phrasing, invented words, and filler. Do not repeat the company motivation. Never claim experience from NOT VERIFIED. Use only CV FACTS and VERIFIED. Return JSON only: {"cover_letter":"..."}.'
+    p=f'''{instruction}\nVERIFIED: {verified}\nNOT VERIFIED: {gaps}\nCV FACTS:\n{compact(cvt,2200)}\nJOB CONTEXT:\n{compact(job_description,800)}'''
+    raw=await ollama(p,300);letter=raw.get('cover_letter')
+    if not isinstance(letter,str) or bad_language(letter,lang):raise HTTPException(502,'Generation quality guard rejected the cover letter. Please generate again.')
     if suspicious_claim(letter,missing):raise HTTPException(502,'Generation guard blocked an unsupported experience claim. Please generate again.')
     return WritingResult(cv_suggestions=guarded_suggestions(lang,matched,missing),cover_letter=letter.strip(),interview_questions=interview_questions(lang,matched,missing),generation_seconds=round(time.perf_counter()-started,1))
