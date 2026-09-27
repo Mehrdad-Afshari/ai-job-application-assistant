@@ -18,7 +18,7 @@ type Result = {
 };
 
 function Chips({ items, tone = 'good' }: { items: string[]; tone?: 'good' | 'warn' | 'neutral' }) {
-  return <div className="chips">{items.map((item) => <span className={`chip ${tone}`} key={item}>{item}</span>)}</div>;
+  return <div className="chips">{items.map((item, index) => <span className={`chip ${tone}`} key={`${tone}-${index}-${item}`}>{item}</span>)}</div>;
 }
 
 export default function Home() {
@@ -58,12 +58,12 @@ export default function Home() {
         <div><b>{result.score_breakdown.education_domain}/15</b><span>Education & domain</span></div>
         <div><b>{result.score_breakdown.other_requirements}/15</b><span>Other requirements</span></div>
       </div></article>
-      <article className="card"><h3>Requirement Evidence</h3><div className="requirements">{result.requirements.map((r) => <div className={`requirement ${r.status}`} key={`${r.requirement}-${r.priority}`}><div><b>{r.requirement}</b><span className="priority">{r.priority}</span></div><small>{r.status.toUpperCase()} • {r.evidence}</small></div>)}</div></article>
+      <article className="card"><h3>Requirement Evidence</h3><div className="requirements">{result.requirements.map((r, index) => <div className={`requirement ${r.status}`} key={`requirement-${index}-${r.requirement}-${r.priority}`}><div><b>{r.requirement}</b><span className="priority">{r.priority}</span></div><small>{r.status.toUpperCase()} • {r.evidence}</small></div>)}</div></article>
       <div className="twoCol"><article className="card"><h3>✓ Matched Skills</h3><Chips items={result.matched_skills} /></article><article className="card"><h3>△ Missing / Weak Skills</h3><Chips items={result.missing_skills} tone="warn" /></article></div>
       <article className="card"><h3>ATS Keywords</h3><Chips items={result.keywords} tone="neutral" /></article>
-      <article className="card"><h3>CV Improvement Suggestions</h3><ol>{result.cv_suggestions.map((x) => <li key={x}>{x}</li>)}</ol></article>
+      <article className="card"><h3>CV Improvement Suggestions</h3><ol>{result.cv_suggestions.map((x, index) => <li key={`suggestion-${index}-${x}`}>{x}</li>)}</ol></article>
       <article className="card"><h3>Tailored Cover Letter</h3><pre>{result.cover_letter}</pre></article>
-      <article className="card"><h3>Likely Interview Questions</h3><ol>{result.interview_questions.map((x) => <li key={x}>{x}</li>)}</ol></article>
+      <article className="card"><h3>Likely Interview Questions</h3><ol>{result.interview_questions.map((x, index) => <li key={`question-${index}-${x}`}>{x}</li>)}</ol></article>
     </section>}
     <footer>Built by Mehrdad Afshari • Next.js + FastAPI + Ollama</footer>
   </main>;
