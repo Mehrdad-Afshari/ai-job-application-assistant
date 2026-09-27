@@ -1,18 +1,19 @@
 # AI Job Application Assistant
 
-An AI-powered web application that compares a CV with a job description and returns structured, actionable application insights.
+A local-first AI application that compares a CV with a job description and produces evidence-based application insights.
 
-## Features
+## v1.2 Highlights
 
-- PDF CV upload and text extraction
-- Job description analysis
-- Overall job match score
-- Matched and missing skills
-- ATS/job keywords
-- CV improvement suggestions
-- Tailored cover-letter draft
-- Likely interview questions
-- Local-first AI with Ollama
+- PDF CV parsing
+- Evidence-based job requirement extraction
+- Required vs. preferred requirement classification
+- Matched / partial / missing evidence states
+- **Deterministic Python scoring** instead of letting the LLM invent a score
+- Technical, experience, education and other score breakdowns
+- ATS keyword extraction
+- Language-aware CV suggestions, cover letter and interview questions
+- Local-first processing with Ollama
+- Responsive Next.js dashboard
 
 ## Tech Stack
 
@@ -20,31 +21,35 @@ An AI-powered web application that compares a CV with a job description and retu
 - **Backend:** FastAPI, Python, Pydantic, pypdf
 - **AI:** Ollama (`llama3.2` by default)
 
-## Architecture
+## Hybrid Pipeline
 
 ```text
 CV PDF + Job Description
           |
           v
-     Next.js UI
+     PDF/Text Preprocessing
           |
           v
-   FastAPI Backend
-      /       \
- PDF Parser   Prompt Builder
-                  |
-                  v
-                Ollama
-                  |
-                  v
-         Structured JSON Result
+  LLM Evidence Extraction
+  requirements + evidence
+          |
+          v
+ Deterministic Python Scoring
+          |
+          v
+ LLM Application Writing
+ summary + CV suggestions
+ cover letter + interview Qs
+          |
+          v
+     Next.js Dashboard
 ```
+
+The LLM does not control the final match score. Python calculates it from the verified requirement statuses, with required requirements weighted more heavily than preferred ones. Matched and missing lists are generated from the same canonical requirement table to prevent contradictory results.
 
 ## Quick Start
 
 ### 1. Ollama
-
-Install Ollama and pull the default model:
 
 ```bash
 ollama pull llama3.2
@@ -52,16 +57,18 @@ ollama pull llama3.2
 
 ### 2. Backend
 
+Python 3.12 is recommended.
+
 ```bash
 cd backend
 python -m venv .venv
 # Windows: .venv\Scripts\activate
 # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+python -m uvicorn main:app --reload --port 8000
 ```
 
-Backend health check: `http://localhost:8000/health`
+Health check: `http://localhost:8000/health`
 
 ### 3. Frontend
 
@@ -92,20 +99,20 @@ OLLAMA_MODEL=llama3.2
 
 `POST /analyze` accepts multipart form data:
 
-- `cv`: PDF file
-- `job_description`: job description text
-
-The response is validated against a Pydantic schema before being returned to the frontend.
+- `cv`: PDF file (max 5 MB)
+- `job_description`: full job-description text
 
 ## Privacy
 
-The default configuration uses a locally running Ollama model. CV content and job descriptions do not need to be sent to a third-party LLM API.
+The default configuration uses a locally running Ollama model, so CV and job-description content do not need to be sent to a third-party LLM API.
 
 ## Roadmap
 
 - [x] MVP architecture
 - [x] PDF parsing
-- [x] Structured AI analysis
+- [x] Evidence-based requirement extraction
+- [x] Deterministic scoring engine
+- [x] Language-aware application writing
 - [x] Responsive analysis dashboard
 - [ ] DOCX support
 - [ ] Export analysis as PDF
