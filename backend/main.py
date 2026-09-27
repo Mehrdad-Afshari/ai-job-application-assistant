@@ -19,12 +19,12 @@ class AnalysisResult(BaseModel):
 class WritingResult(BaseModel):
     cv_suggestions:List[str]=Field(default_factory=list); cover_letter:str=''; interview_questions:List[str]=Field(default_factory=list)
 
-app=FastAPI(title='AI Job Application Assistant API',version='1.5.0',description='Instant deterministic evidence-based CV/job matching with optional local AI writing.')
+app=FastAPI(title='AI Job Application Assistant API',version='1.5.1',description='Instant deterministic evidence-based CV/job matching with atomic requirements.')
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:3000'],allow_credentials=True,allow_methods=['*'],allow_headers=['*'])
 
 SKILLS={
 'python':['python'],'fastapi':['fastapi'],'javascript':['javascript'],'typescript':['typescript'],'react':['react','next.js','nextjs'],'node':['node.js','nodejs'],'csharp':['c#','.net','dotnet'],'java':['java'],'sql':['sql','sql server','postgresql','mysql'],'git':['git','github'],'docker':['docker'],'kubernetes':['kubernetes','k8s'],'aws':['aws','amazon web services'],'azure':['azure'],'gcp':['gcp','google cloud'],'cloud':['cloud computing','cloud technologies','cloud-technologien'],'llm':['llm','large language model','language models','llama','ollama'],'rag':['rag','retrieval augmented generation','retrieval-augmented generation'],'agents':['ai agent','ai-agent','ai agents','ki-agent','ki agent','agentic','agent skills','mcp'],'ml':['machine learning','ki-/ml','ml-verfahren'],'genai':['generative ai','genai'],'testing':['unit test','unit tests','testing','pytest','jest','tests'],'code_review':['code review','code reviews'],'cicd':['ci/cd','continuous integration','continuous deployment'],'agile':['agile','agilen','scrum','kanban'],'okr':['okr'],'office':['microsoft-office','microsoft office','ms office','excel','powerpoint','word'],'api':['rest api','restful','api development','schnittstellen'],'fullstack':['full-stack','full stack','frontend and backend','frontend & backend'],'security':['it-sicherheit','it security','cybersecurity'],'requirements':['requirements engineering','requirement analysis','anforderungsanalyse','fachlichen anforderungen'],'masters':['m.sc','msc','master of science','master’s','master\'s'],'bachelors':['b.sc','bsc','bachelor'],'computer_science':['computer science','informatik'],'german':['deutschkenntnisse','german'],'communication':['kommunikationsfähigkeit','communication skills'],'teamwork':['teamgeist','teamwork','team player']}
-BENEFIT_CUES=['monatsgehalt','gewinnbeteiligung','mobiles arbeiten','flexible arbeitszeiten','urlaubstage','benefits','unternehmenskultur','raum für mitgestaltung','betriebliche altersvorsorge','jobrad','kantine','vergütung','gehalt','woche','arbeitszeiten']
+BENEFIT_CUES=['monatsgehalt','gewinnbeteiligung','mobiles arbeiten','flexible arbeitszeiten','urlaubstage','benefits','unternehmenskultur','raum für mitgestaltung','betriebliche altersvorsorge','jobrad','kantine','vergütung','gehalt','arbeitszeiten']
 REQ_CUES=['erfahrung','kenntnisse','studium','abschluss','ausbildung','deutschkenntnisse','kommunikationsfähigkeit','teamgeist','lernbereitschaft','arbeitsweise','entwickeln','entwicklung','konzipieren','implementieren','integrieren','betreiben','softwarequalität','code reviews','tests','anforderungen','architekturentscheidungen','standards','sicherstellen','überführen','prototypen','experience','knowledge','degree','develop','implement','requirements','responsible']
 
 def extract_pdf_text(data:bytes)->str:
@@ -52,8 +52,26 @@ def split_job(job:str)->list[str]:
         if not raw:continue
         for p in re.split(r'(?<=[.!?])\s+(?=[A-ZÄÖÜ])',raw):
             p=p.strip(' •-*\t')
-            if 12<=len(p)<=280:pieces.append(p)
+            if 12<=len(p)<=320:pieces.append(p)
     return pieces
+def atomize(line:str)->list[str]:
+    low=line.lower()
+    # Explicitly split common compound qualification sentences into independently scoreable requirements.
+    if 'microsoft-office' in low and ('aws' in low or 'cloud-technologien' in low):
+        out=['Sehr gute Kenntnisse in Microsoft-Office-Anwendungen']
+        if 'ki-/ml' in low or 'ml-verfahren' in low:out.append('Erfahrung mit KI-/ML-Verfahren')
+        if 'aws' in low or 'cloud' in low:out.append('Erfahrung mit Cloud-Technologien (AWS)')
+        if 'lernbereitschaft' in low:out.append('Ausgeprägte Lernbereitschaft für das Einarbeiten in neue Systeme')
+        return out
+    if 'agilen arbeitsmethoden' in low and 'okr' in low:return ['Erfahrungen mit agilen Arbeitsmethoden','Erfahrungen mit der OKR-Methodik']
+    if 'code reviews' in low and ('tests' in low or 'it-sicherheit' in low):
+        out=['Erfahrung mit Code Reviews','Erfahrung mit Softwaretests']
+        if 'human-in-the-loop' in low:out.append('Human-in-the-Loop bei KI-generierten Ergebnissen')
+        if 'it-sicherheit' in low:out.append('IT-Sicherheit und regulatorische Anforderungen')
+        return out
+    if 'studium' in low and 'berufserfahrung' in low and ('alternativ' in low or 'ausbildung' in low):
+        return ['Abgeschlossenes Studium im Bereich Informatik oder vergleichbar']
+    return [line]
 def is_benefit(line:str)->bool:return any(x in line.lower() for x in BENEFIT_CUES)
 def priority(line:str)->str:return 'preferred' if any(x in line.lower() for x in ['von vorteil','wünschenswert','idealerweise','nice to have','preferred','optional']) else 'required'
 def category(line:str)->str:
@@ -61,34 +79,44 @@ def category(line:str)->str:
     if s&{'masters','bachelors','computer_science'} or any(x in low for x in ['studium','abschluss','ausbildung','degree']):return 'education'
     if any(x in low for x in ['mehrjähriger berufserfahrung','jahre erfahrung','years of experience','berufserfahrung']):return 'experience'
     if s&{'communication','teamwork','german'} or any(x in low for x in ['arbeitsweise','lernbereitschaft','zuverlässig','verantwortungsbewusst']):return 'other'
-    return 'technical' if s or any(x in low for x in ['entwickeln','implementieren','software','architektur','tests','prototypen','anforderungen']) else 'other'
+    return 'technical' if s or any(x in low for x in ['entwickeln','implementieren','software','architektur','tests','prototypen','anforderungen','code reviews']) else 'other'
 def classify(line:str,cv:str)->tuple[str,str]:
     needed=skill_set(line);have=skill_set(cv);hits=needed&have
     if needed:
-        ev=', '.join(evidence_for(x,cv) for x in sorted(hits)) if hits else 'No evidence in CV'
-        ratio=len(hits)/len(needed)
+        ev=', '.join(evidence_for(x,cv) for x in sorted(hits)) if hits else 'No evidence in CV';ratio=len(hits)/len(needed)
         return ('matched',ev) if ratio>=.8 else ('partial',ev) if ratio>=.34 else ('missing','No evidence in CV')
-    # Soft requirements are only matched when their wording is explicitly evidenced; no guessing.
-    words=[w for w in re.findall(r'[a-zäöüß]{5,}',line.lower()) if w not in {'einen','einer','einem','sowie','diese','dieser','hohen','ausgeprägte','bereich'}]
-    cvn=norm(cv);hits=[w for w in words if w in cvn]
+    low=line.lower();cvn=norm(cv)
+    if 'berufserfahrung' in low or 'years of experience' in low:
+        # Education/degree keywords must never prove work experience.
+        exp_markers=['software developer','softwareentwickler','developer','entwickler','work experience','professional experience','berufserfahrung']
+        hits=[x for x in exp_markers if x in cvn]
+        return ('partial',', '.join(hits[:3])) if hits else ('missing','No explicit work-experience evidence in CV')
+    words=[w for w in re.findall(r'[a-zäöüß]{5,}',low) if w not in {'einen','einer','einem','sowie','diese','dieser','hohen','ausgeprägte','bereich','erfahrung','kenntnisse'}]
+    hits=[w for w in words if w in cvn]
     if len(hits)>=3:return 'partial',', '.join(hits[:4])
     return 'missing','No explicit evidence in CV'
 def extract_requirements(job:str,cv:str)->list[Requirement]:
     candidates=[];seen=set()
-    for line in split_job(job):
-        low=line.lower();skills=skill_set(line)
-        if is_benefit(line):continue
-        if not skills and not any(x in low for x in REQ_CUES):continue
-        key=norm(line)
-        if key in seen:continue
-        seen.add(key)
-        # Rank technical/responsibility lines above generic soft requirements.
-        rank=(3 if skills else 0)+(2 if any(x in low for x in ['entwickeln','konzipieren','implementieren','softwarequalität','prototypen','anforderungen','erfahrung','kenntnisse']) else 0)+(1 if priority(line)=='required' else 0)
-        candidates.append((rank,line))
+    for original in split_job(job):
+        if is_benefit(original):continue
+        base_priority=priority(original)
+        for line in atomize(original):
+            low=line.lower();skills=skill_set(line)
+            if not skills and not any(x in low for x in REQ_CUES):continue
+            key=norm(line)
+            if key in seen:continue
+            seen.add(key);rank=(3 if skills else 0)+(2 if any(x in low for x in ['entwickeln','konzipieren','implementieren','softwarequalität','prototypen','anforderungen','erfahrung','kenntnisse','studium']) else 0)+(1 if base_priority=='required' else 0)
+            candidates.append((rank,line,base_priority))
     candidates.sort(key=lambda x:x[0],reverse=True)
-    out=[]
-    for _,line in candidates[:10]:
-        status,evidence=classify(line,cv);out.append(Requirement(requirement=line,priority=priority(line),category=category(line),status=status,evidence=evidence))
+    out=[];edu_seen=False
+    for _,line,p in candidates:
+        cat=category(line)
+        # One degree requirement should not be counted twice because of alternative wording.
+        if cat=='education':
+            if edu_seen:continue
+            edu_seen=True
+        status,evidence=classify(line,cv);out.append(Requirement(requirement=line,priority=p,category=cat,status=status,evidence=evidence))
+        if len(out)>=12:break
     return out
 def keywords(job:str)->list[str]:return [SKILLS[s][0] for s in sorted(skill_set(job))][:12]
 def score(reqs:list[Requirement])->ScoreBreakdown:
@@ -112,7 +140,7 @@ async def ollama(prompt:str,n:int)->dict:
     except Exception:return {}
 
 @app.get('/health')
-async def health():return {'status':'ok','service':'ai-job-application-assistant','version':'1.5.0','pipeline':'instant-deterministic-analysis'}
+async def health():return {'status':'ok','service':'ai-job-application-assistant','version':'1.5.1','pipeline':'atomic-deterministic-analysis'}
 @app.post('/analyze',response_model=AnalysisResult)
 async def analyze_endpoint(cv:UploadFile=File(...),job_description:str=Form(...)):
     started=time.perf_counter()
@@ -129,4 +157,4 @@ async def generate_endpoint(cv:UploadFile=File(...),job_description:str=Form(...
     cvt=extract_pdf_text(await cv.read())
     try:a=json.loads(analysis_json)
     except json.JSONDecodeError as exc:raise HTTPException(400,'Invalid analysis data.') from exc
-    lang=a.get('detected_language',language_of(job_description));ev='\n'.join(f"- {x.get('requirement')}: {x.get('status')} | {x.get('evidence')}" for x in a.get('requirements',[])[:10]);p=f'''Return ONLY valid JSON with cv_suggestions, cover_letter, interview_questions. Write entirely in {lang}. Exactly 3 truthful CV suggestions, a 90-130 word cover letter, exactly 5 interview questions. Use ONLY verified evidence and CV facts. Never claim missing experience.\nVERIFIED ANALYSIS:\n{ev}\nCV:\n{compact(cvt,4200)}\nJOB:\n{compact(job_description,2400)}''';raw=await ollama(p,500);s=raw.get('cv_suggestions') or [];q=raw.get('interview_questions') or [];return WritingResult(cv_suggestions=s[:3] if isinstance(s,list) else [],cover_letter=str(raw.get('cover_letter') or ''),interview_questions=q[:5] if isinstance(q,list) else [])
+    lang=a.get('detected_language',language_of(job_description));ev='\n'.join(f"- {x.get('requirement')}: {x.get('status')} | {x.get('evidence')}" for x in a.get('requirements',[])[:12]);p=f'''Return ONLY valid JSON with cv_suggestions, cover_letter, interview_questions. Write entirely in {lang}. Exactly 3 truthful CV suggestions, a 90-130 word cover letter, exactly 5 interview questions. Use ONLY verified evidence and CV facts. Never claim missing experience.\nVERIFIED ANALYSIS:\n{ev}\nCV:\n{compact(cvt,4200)}\nJOB:\n{compact(job_description,2400)}''';raw=await ollama(p,500);s=raw.get('cv_suggestions') or [];q=raw.get('interview_questions') or [];return WritingResult(cv_suggestions=s[:3] if isinstance(s,list) else [],cover_letter=str(raw.get('cover_letter') or ''),interview_questions=q[:5] if isinstance(q,list) else [])
