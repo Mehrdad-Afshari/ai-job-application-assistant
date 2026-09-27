@@ -38,19 +38,8 @@ class AnalysisResult(BaseModel):
     interview_questions: List[str]
 
 
-app = FastAPI(
-    title="AI Job Application Assistant API",
-    version="1.1.0",
-    description="Evidence-based CV and job matching using a local Ollama model.",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="AI Job Application Assistant API", version="1.1.1", description="Evidence-based CV and job matching using a local Ollama model.")
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
 def extract_pdf_text(data: bytes) -> str:
@@ -65,84 +54,79 @@ def extract_pdf_text(data: bytes) -> str:
 
 
 def compact_text(text: str, limit: int) -> str:
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    compact = "\n".join(lines)
-    return compact[:limit]
+    return "\n".join(line.strip() for line in text.splitlines() if line.strip())[:limit]
 
 
 def build_prompt(cv_text: str, job_description: str) -> str:
-    cv = compact_text(cv_text, 12000)
-    job = compact_text(job_description, 8000)
-    return f"""
-Act as an evidence-based technical recruiter and ATS analyst. Compare the CV with the job posting.
+    cv = compact_text(cv_text, 10000)
+    job = compact_text(job_description, 6500)
+    return f'''Act as an evidence-based technical recruiter and ATS analyst. Compare the CV with the job posting.
+Return ONLY one valid JSON object, with no markdown and no text before or after it.
 
-STRICT RULES
-1. Use only facts explicitly supported by the CV. Never infer or invent skills or experience.
-2. Identify important job requirements and classify each as required or preferred from the wording/context of the posting.
-3. For each requirement mark matched, partial, or missing and provide a very short CV evidence note. For missing requirements use "No evidence in CV".
-4. The four score components must add up exactly to match_score:
-   technical_skills max 45; experience_projects max 25; education_domain max 15; other_requirements max 15.
-5. Penalize missing REQUIRED requirements more than preferred requirements. Domain/industry experience must not receive a large penalty unless the posting actually requires it.
-6. matched_skills may contain only skills supported by the CV AND relevant to this job.
-7. missing_skills should focus on meaningful required/preferred gaps, not generic extras.
-8. Detect the main language of the JOB POSTING. Write summary, CV suggestions, cover letter and interview questions entirely in that language. Do not mix languages except for established technology/product names.
-9. ATS keywords should preserve useful terminology from the job posting.
-10. Give 3-5 concrete CV suggestions. Refer to a real CV section/project/experience when possible and explain what to emphasize or clarify. Never advise the candidate to falsely add a skill.
-11. Write a concise, credible cover letter (roughly 130-190 words) grounded in the CV. Do not claim missing experience.
-12. Write 5 likely interview questions. If a requirement is missing, phrase it as a gap/learning question rather than falsely assuming experience.
-13. Keep the whole response concise to reduce latency.
+Use exactly this structure:
+{{
+ "match_score": 0,
+ "score_breakdown": {{"technical_skills": 0, "experience_projects": 0, "education_domain": 0, "other_requirements": 0}},
+ "detected_language": "German or English or other language",
+ "summary": "...",
+ "requirements": [{{"requirement":"...","priority":"required","status":"matched","evidence":"..."}}],
+ "matched_skills": ["..."],
+ "missing_skills": ["..."],
+ "keywords": ["..."],
+ "cv_suggestions": ["..."],
+ "cover_letter": "...",
+ "interview_questions": ["..."]
+}}
 
-CV
----
-{cv}
----
-JOB POSTING
----
-{job}
----
-""".strip()
+Rules:
+- Only facts explicitly supported by the CV may be called matched. Never invent experience or skills.
+- Classify important requirements as required/preferred and matched/partial/missing. Missing evidence = "No evidence in CV".
+- Score maxima: technical_skills 45, experience_projects 25, education_domain 15, other_requirements 15. Penalize missing required items more than preferred ones. Industry experience gets a large penalty only if actually required.
+- Keep 6-10 most important requirements, 5-12 matched skills, 2-8 meaningful gaps, and 6-12 ATS keywords.
+- Detect the job posting language. Write summary, CV suggestions, cover letter and interview questions fully in that language; technology names may remain unchanged.
+- Give 3-5 specific, truthful CV suggestions tied to real CV sections/projects/experience.
+- Cover letter: credible and concise, about 110-160 words, never claim missing experience.
+- Exactly 5 interview questions. For missing skills ask how the candidate would learn/handle the gap instead of assuming experience.
+- Keep evidence notes short.
+
+CV:\n---\n{cv}\n---\nJOB POSTING:\n---\n{job}\n---'''
 
 
 async def analyze_with_ollama(prompt: str) -> AnalysisResult:
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
     model = os.getenv("OLLAMA_MODEL", "llama3.2")
-    schema = AnalysisResult.model_json_schema()
     try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            response = await client.post(
-                f"{base_url}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "format": schema,
-                    "options": {"temperature": 0.0, "num_predict": 1800},
-                },
-            )
+        async with httpx.AsyncClient(timeout=240.0) as client:
+            response = await client.post(f"{base_url}/api/generate", json={
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json",
+                "options": {"temperature": 0.0, "num_predict": 1500}
+            })
             response.raise_for_status()
             raw_text = response.json().get("response", "").strip()
             if not raw_text:
                 raise ValueError("Ollama returned an empty response")
             result = AnalysisResult.model_validate(json.loads(raw_text))
-            total = sum(result.score_breakdown.model_dump().values())
-            result.match_score = max(0, min(100, total))
+            result.match_score = max(0, min(100, sum(result.score_breakdown.model_dump().values())))
             return result
     except httpx.ConnectError as exc:
         raise HTTPException(status_code=503, detail="Cannot connect to Ollama. Start Ollama and verify the configured model.") from exc
     except (KeyError, json.JSONDecodeError, ValidationError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=502, detail=f"Invalid structured AI response ({type(exc).__name__}). Please try again.") from exc
     except httpx.HTTPStatusError as exc:
-        detail = "Ollama request failed."
-        if exc.response.status_code == 400:
-            detail += " Update Ollama if your version does not support JSON-schema output."
-        raise HTTPException(status_code=502, detail=detail) from exc
+        body = exc.response.text[:300].replace("\n", " ")
+        raise HTTPException(status_code=502, detail=f"Ollama HTTP {exc.response.status_code}: {body or 'request failed'}") from exc
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="Ollama analysis timed out. Please try again.") from exc
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="Ollama request failed.") from exc
+        raise HTTPException(status_code=502, detail=f"Ollama connection error: {type(exc).__name__}") from exc
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "ai-job-application-assistant", "version": "1.1.0"}
+    return {"status": "ok", "service": "ai-job-application-assistant", "version": "1.1.1"}
 
 
 @app.post("/analyze", response_model=AnalysisResult)
@@ -154,5 +138,4 @@ async def analyze(cv: UploadFile = File(...), job_description: str = Form(...)):
     data = await cv.read()
     if len(data) > 5 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="CV file is too large. Maximum size is 5 MB.")
-    cv_text = extract_pdf_text(data)
-    return await analyze_with_ollama(build_prompt(cv_text, job_description))
+    return await analyze_with_ollama(build_prompt(extract_pdf_text(data), job_description))
