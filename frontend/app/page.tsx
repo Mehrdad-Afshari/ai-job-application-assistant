@@ -4,7 +4,7 @@ import { FormEvent, useState } from 'react';
 
 type Requirement = { requirement: string; priority: 'required'|'preferred'; status: 'matched'|'partial'|'missing'; evidence: string };
 type Result = { match_score:number; score_breakdown:{technical_skills:number;experience_projects:number;education_domain:number;other_requirements:number}; detected_language:string; summary:string; requirements:Requirement[]; matched_skills:string[]; missing_skills:string[]; keywords:string[]; analysis_seconds:number };
-type Writing = { cv_suggestions:string[]; cover_letter:string; interview_questions:string[] };
+type Writing = { cv_suggestions:string[]; cover_letter:string; interview_questions:string[]; generation_seconds:number };
 
 function Chips({items,tone='good'}:{items:string[];tone?:'good'|'warn'|'neutral'}){return <div className="chips">{items.map((x,i)=><span className={`chip ${tone}`} key={`${tone}-${i}-${x}`}>{x}</span>)}</div>}
 
@@ -25,7 +25,7 @@ export default function Home(){
    <div className="twoCol"><article className="card"><h3>✓ Verified Matches</h3><Chips items={result.matched_skills}/></article><article className="card"><h3>△ Missing / Unverified</h3><Chips items={result.missing_skills} tone="warn"/></article></div>
    <article className="card"><h3>ATS Keywords</h3><Chips items={result.keywords} tone="neutral"/></article>
    <button onClick={generate} disabled={generating} type="button">{generating?'Generating application materials…':'Generate CV Suggestions, Cover Letter & Interview Questions →'}</button>
-   {writing&&<><article className="card"><h3>CV Improvement Suggestions</h3><ol>{writing.cv_suggestions.map((x,i)=><li key={`s-${i}`}>{x}</li>)}</ol></article><article className="card"><h3>Tailored Cover Letter</h3><pre>{writing.cover_letter}</pre></article><article className="card"><h3>Likely Interview Questions</h3><ol>{writing.interview_questions.map((x,i)=><li key={`q-${i}`}>{x}</li>)}</ol></article></>}
+   {writing&&<><div className="language">Local AI generation • {writing.generation_seconds}s</div><article className="card"><h3>CV Improvement Suggestions</h3><ol>{writing.cv_suggestions.map((x,i)=><li key={`s-${i}`}>{x}</li>)}</ol></article><article className="card"><h3>Tailored Cover Letter</h3><pre>{writing.cover_letter}</pre></article><article className="card"><h3>Likely Interview Questions</h3><ol>{writing.interview_questions.map((x,i)=><li key={`q-${i}`}>{x}</li>)}</ol></article></>}
   </section>}
   <footer>Built by Mehrdad Afshari • Next.js + FastAPI + Ollama</footer>
  </main>
